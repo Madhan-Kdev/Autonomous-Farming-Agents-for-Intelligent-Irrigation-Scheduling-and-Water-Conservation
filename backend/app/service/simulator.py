@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.models.crop import CropGrowthStage
 from app.models.weather import WeatherRecord
 from app.models.zone import SoilProfile, Zone
+from app.service.soil_physics import compute_soil_water_status
 from app.repositories.repositories import (
     CropGrowthStageRepository,
     CropRepository,
@@ -40,6 +41,29 @@ from app.repositories.repositories import (
     WeatherRecordRepository,
     ZoneRepository,
 )
+
+
+@dataclass
+class ManualIrrigationResult:
+    """Telemetry outputs from a direct manual irrigation application."""
+
+    zone_id: int
+    zone_name: str
+    farm_id: int
+    volume_applied_mm: float
+    volume_applied_liters: float
+    duration_minutes: float
+    flow_rate_l_h: float
+    irrigation_method: str
+    soil_moisture_before_pct: float
+    soil_moisture_after_pct: float
+    field_capacity_pct: float
+    wilting_point_pct: float
+    deep_percolation_mm: float
+    stress_index_before: float
+    stress_index_after: float
+    irrigation_record_id: int
+    soil_profile_id: int
 
 
 @dataclass
@@ -69,6 +93,7 @@ class VirtualFarmSimulator:
         self.weather_repo = WeatherRecordRepository(db)
         self.crop_repo = CropRepository(db)
         self.stage_repo = CropGrowthStageRepository(db)
+        self.irrig_repo = IrrigationRecordRepository(db)
 
     def advance_day(
         self,
@@ -202,4 +227,157 @@ class VirtualFarmSimulator:
             simulated_et0_mm=et0_approx,
             simulated_rain_mm=rain_mm,
             zone_moisture_levels=zone_moistures,
+        )
+
+    def apply_zone_manual_irrigation(
+        self,
+        zone_id: int,
+        volume_mm: float | None = None,
+        volume_liters: float | None = None,
+        irrigation_method: str | None = None,
+        flow_rate_l_h: float | None = None,
+    ) -> ManualIrrigationResult:
+        """
+        Execute an immediate manual irrigation event on a specific zone in the virtual farm.
+
+        Calculates volume conversion, application efficiency, soil moisture refill,
+        deep percolation losses, flow duration, and soil stress transitions,
+        persisting both a new SoilProfile telemetry record and an applied IrrigationRecord.
+        """
+        zone = self.zone_repo.get_by_id(zone_id)
+        if not zone:
+            raise ValueError(f"Zone with ID {zone_id} does not exist.")
+
+        field = self.field_repo.get_by_id(zone.field_id) if zone.field_id else None
+        farm_id = field.farm_id if field else 1
+        area_ha = float(zone.area_ha) if zone.area_ha else 1.0
+
+        # 1. Volume normalization (1 mm over 1 ha = 10,000 L)
+        if volume_mm is not None and volume_mm > 0:
+            vol_mm = float(volume_mm)
+            vol_liters = vol_mm * area_ha * 10000.0
+        elif volume_liters is not None and volume_liters > 0:
+            vol_liters = float(volume_liters)
+            vol_mm = vol_liters / (area_ha * 10000.0)
+        else:
+            raise ValueError("Either volume_mm (>0) or volume_liters (>0) must be specified.")
+
+        # 2. Irrigation method efficiency (eta)
+        method = (irrigation_method or zone.irrigation_method or "drip").lower()
+        efficiencies = {
+            "drip": 0.90,
+            "sprinkler": 0.80,
+            "flood": 0.65,
+            "surface": 0.65,
+        }
+        eta = efficiencies.get(method, 0.85)
+        net_inflow_mm = vol_mm * eta
+
+        # 3. Flow rate and pumping duration
+        if flow_rate_l_h is not None and flow_rate_l_h > 0:
+            q = float(flow_rate_l_h)
+        else:
+            q = 25000.0 * area_ha  # Default 25,000 L/h per hectare
+        duration_minutes = (vol_liters / q) * 60.0 if q > 0 else 0.0
+
+        # 4. Current soil status
+        latest_soil = self.soil_repo.get_latest_for_zone(zone.id)
+        fc = latest_soil.field_capacity_pct if (latest_soil and latest_soil.field_capacity_pct) else 30.0
+        wp = latest_soil.wilting_point_pct if (latest_soil and latest_soil.wilting_point_pct) else 12.0
+        curr_theta = latest_soil.volumetric_moisture_pct if (latest_soil and latest_soil.volumetric_moisture_pct) else 22.0
+        root_depth_m = (latest_soil.depth_cm / 100.0) if (latest_soil and latest_soil.depth_cm) else 0.40
+
+        # 5. Moisture replenishment & percolation physics
+        # delta_theta (%) = net_inflow_mm / (10.0 * root_depth_m)
+        delta_theta = net_inflow_mm / (10.0 * root_depth_m)
+        theta_theo = curr_theta + delta_theta
+
+        if theta_theo > fc:
+            theta_after = fc
+            excess_pct = theta_theo - fc
+            deep_percolation_mm = excess_pct * 10.0 * root_depth_m
+        else:
+            theta_after = theta_theo
+            deep_percolation_mm = 0.0
+
+        theta_after = round(theta_after, 2)
+        deep_percolation_mm = round(deep_percolation_mm, 2)
+
+        # 6. Soil water stress before and after
+        status_before = compute_soil_water_status(
+            moisture_pct=curr_theta,
+            field_capacity_pct=fc,
+            wilting_point_pct=wp,
+            root_depth_m=root_depth_m,
+        )
+        status_after = compute_soil_water_status(
+            moisture_pct=theta_after,
+            field_capacity_pct=fc,
+            wilting_point_pct=wp,
+            root_depth_m=root_depth_m,
+        )
+
+        # 7. Persist updated SoilProfile
+        new_profile = self.soil_repo.create(
+            zone_id=zone.id,
+            data_source="simulated",
+            volumetric_moisture_pct=theta_after,
+            field_capacity_pct=fc,
+            wilting_point_pct=wp,
+            bulk_density_g_cm3=latest_soil.bulk_density_g_cm3 if latest_soil else 1.45,
+            ph=latest_soil.ph if latest_soil else 6.8,
+            organic_matter_pct=latest_soil.organic_matter_pct if latest_soil else 1.2,
+            sand_pct=latest_soil.sand_pct if latest_soil else 65.0,
+            silt_pct=latest_soil.silt_pct if latest_soil else 20.0,
+            clay_pct=latest_soil.clay_pct if latest_soil else 15.0,
+            depth_cm=root_depth_m * 100.0,
+            temperature_c=latest_soil.temperature_c if latest_soil else 22.0,
+            notes=f"Manual irrigation applied: {round(vol_mm, 2)} mm ({round(vol_liters, 1)} L) via {method}",
+        )
+
+        # 8. Persist applied IrrigationRecord
+        now = datetime.now(timezone.utc)
+        irrig_rec = self.irrig_repo.create(
+            zone_id=zone.id,
+            farm_id=farm_id,
+            scheduled_at=now,
+            decision="MANUAL_COMMAND",
+            recommended_volume_mm=round(vol_mm, 2),
+            recommended_duration_min=round(duration_minutes, 1),
+            actual_volume_mm=round(vol_mm, 2),
+            actual_duration_min=round(duration_minutes, 1),
+            was_applied=True,
+            soil_moisture_before_pct=round(curr_theta, 2),
+            soil_moisture_after_pct=theta_after,
+            et0_on_day_mm=None,
+            etc_on_day_mm=None,
+            precipitation_on_day_mm=0.0,
+            decision_confidence=1.0,
+            irrigation_method=method,
+            reasoning_summary=f"Manual operator irrigation: {round(vol_mm, 2)} mm ({round(vol_liters, 1)} L), duration {round(duration_minutes, 1)} min.",
+            notes="Direct manual digital twin command execution.",
+        )
+
+        self.db.commit()
+        self.db.refresh(new_profile)
+        self.db.refresh(irrig_rec)
+
+        return ManualIrrigationResult(
+            zone_id=zone.id,
+            zone_name=zone.name,
+            farm_id=farm_id,
+            volume_applied_mm=round(vol_mm, 2),
+            volume_applied_liters=round(vol_liters, 1),
+            duration_minutes=round(duration_minutes, 1),
+            flow_rate_l_h=round(q, 1),
+            irrigation_method=method,
+            soil_moisture_before_pct=round(curr_theta, 2),
+            soil_moisture_after_pct=theta_after,
+            field_capacity_pct=round(fc, 2),
+            wilting_point_pct=round(wp, 2),
+            deep_percolation_mm=deep_percolation_mm,
+            stress_index_before=round(status_before.soil_stress_index, 4),
+            stress_index_after=round(status_after.soil_stress_index, 4),
+            irrigation_record_id=irrig_rec.id,
+            soil_profile_id=new_profile.id,
         )

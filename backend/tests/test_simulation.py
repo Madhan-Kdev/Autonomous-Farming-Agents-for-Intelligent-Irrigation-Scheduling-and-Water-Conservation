@@ -45,6 +45,22 @@ def client():
         yield c
 
 
+@pytest.fixture(scope="module", autouse=True)
+def cleanup_simulation_artifacts():
+    yield
+    from app.database.engine import SessionLocal
+    from app.models.zone import SoilProfile
+    from app.models.weather import WeatherRecord
+    from app.models.irrigation import IrrigationRecord
+    session = SessionLocal()
+    session.query(SoilProfile).filter(SoilProfile.notes.like("%Simulated daily telemetry update%")).delete(synchronize_session=False)
+    session.query(SoilProfile).filter(SoilProfile.notes.like("%Manual irrigation applied%")).delete(synchronize_session=False)
+    session.query(WeatherRecord).filter(WeatherRecord.source == "simulated").delete(synchronize_session=False)
+    session.query(IrrigationRecord).filter(IrrigationRecord.decision == "MANUAL_COMMAND").delete(synchronize_session=False)
+    session.commit()
+    session.close()
+
+
 class TestVirtualFarmSimulator:
     def test_simulator_advances_day_and_creates_records(self, db):
         from app.repositories.repositories import FarmRepository, SoilProfileRepository, WeatherRecordRepository
@@ -98,6 +114,54 @@ class TestVirtualFarmSimulator:
 
         assert moisture2 > moisture1
 
+    def test_apply_zone_manual_irrigation_replenishes_and_records(self, db):
+        from app.repositories.repositories import FarmRepository, FieldRepository, IrrigationRecordRepository, ZoneRepository
+        from app.service.simulator import VirtualFarmSimulator
+
+        farm = FarmRepository(db).get_by_name("Autonomous Demo Farm")
+        field = FieldRepository(db).get_by_farm(farm.id)[0]
+        zone = ZoneRepository(db).get_active_zones(field.id)[0]
+
+        sim = VirtualFarmSimulator(db)
+        res = sim.apply_zone_manual_irrigation(
+            zone_id=zone.id,
+            volume_mm=15.0,
+            irrigation_method="drip",
+        )
+
+        assert res.zone_id == zone.id
+        assert res.volume_applied_mm == 15.0
+        assert res.volume_applied_liters > 0.0
+        assert res.duration_minutes > 0.0
+        assert res.soil_moisture_after_pct >= res.soil_moisture_before_pct
+        assert res.stress_index_after <= res.stress_index_before
+        assert res.irrigation_record_id is not None
+        assert res.soil_profile_id is not None
+
+        rec = IrrigationRecordRepository(db).get_by_id(res.irrigation_record_id)
+        assert rec is not None
+        assert rec.was_applied is True
+        assert rec.decision == "MANUAL_COMMAND"
+        assert rec.actual_volume_mm == 15.0
+
+    def test_apply_zone_manual_irrigation_deep_percolation(self, db):
+        from app.repositories.repositories import FarmRepository, FieldRepository, ZoneRepository
+        from app.service.simulator import VirtualFarmSimulator
+
+        farm = FarmRepository(db).get_by_name("Autonomous Demo Farm")
+        field = FieldRepository(db).get_by_farm(farm.id)[0]
+        zone = ZoneRepository(db).get_active_zones(field.id)[0]
+
+        sim = VirtualFarmSimulator(db)
+        res = sim.apply_zone_manual_irrigation(
+            zone_id=zone.id,
+            volume_mm=120.0,
+            irrigation_method="flood",
+        )
+
+        assert res.deep_percolation_mm > 0.0
+        assert res.soil_moisture_after_pct <= round(res.field_capacity_pct, 2)
+
 
 class TestSimulationEndpoints:
     def test_post_advance_simulation_endpoint(self, client):
@@ -124,4 +188,37 @@ class TestSimulationEndpoints:
         payload = {"farm_id": 999999}
         resp = client.post("/api/v1/simulation/advance", json=payload)
         assert resp.status_code == 404
+
+    def test_post_irrigate_manual_endpoint(self, client):
+        farms_resp = client.get("/api/v1/farms")
+        zone_id = farms_resp.json()["data"][0]["fields"][0]["zones"][0]["id"]
+
+        payload = {
+            "zone_id": zone_id,
+            "volume_mm": 12.5,
+            "irrigation_method": "sprinkler",
+            "flow_rate_l_h": 20000.0,
+        }
+
+        resp = client.post("/api/v1/simulation/irrigate-manual", json=payload)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        data = body["data"]
+        assert data["zone_id"] == zone_id
+        assert data["volume_applied_mm"] == 12.5
+        assert data["irrigation_method"] == "sprinkler"
+        assert data["flow_rate_l_h"] == 20000.0
+        assert data["duration_minutes"] > 0
+        assert data["soil_moisture_after_pct"] >= data["soil_moisture_before_pct"]
+        assert data["irrigation_record_id"] > 0
+
+    def test_post_irrigate_manual_endpoint_invalid_zone_400(self, client):
+        payload = {
+            "zone_id": 999999,
+            "volume_mm": 10.0,
+        }
+        resp = client.post("/api/v1/simulation/irrigate-manual", json=payload)
+        assert resp.status_code == 400
+
 
