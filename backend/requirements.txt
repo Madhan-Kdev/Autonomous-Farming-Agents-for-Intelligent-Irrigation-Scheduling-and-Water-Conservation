@@ -1,0 +1,44 @@
+# ============================================================
+# Autonomous Farming Agents — Backend Requirements
+# Phase 2: Backend Architecture Foundation
+# ============================================================
+
+# --- Web Framework ---
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+
+# --- Data Validation ---
+pydantic==2.11.3
+pydantic-settings==2.9.1
+
+# --- Database ---
+sqlalchemy==2.0.40
+psycopg[binary]==3.2.6
+asyncpg==0.30.0
+alembic==1.15.2
+
+# --- HTTP Clients ---
+httpx==0.28.1
+requests==2.32.3
+
+# --- Environment ---
+python-dotenv==1.1.0
+
+# --- Agentic AI / LangGraph ---
+langgraph==0.4.5
+langchain==0.3.25
+langchain-core==0.3.57
+langchain-groq==0.3.2
+
+# --- Data / ML (foundations for later phases) ---
+numpy==2.2.5
+pandas==2.2.3
+scikit-learn==1.6.1
+
+# --- Testing ---
+pytest==8.3.5
+pytest-asyncio==0.25.3
+httpx==0.28.1
+
+# --- Utilities ---
+python-dateutil==2.9.0
