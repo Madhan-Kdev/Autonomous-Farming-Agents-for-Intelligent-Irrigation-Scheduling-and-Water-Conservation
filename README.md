@@ -4,6 +4,19 @@ A completely software-based Agentic AI system for intelligent irrigation schedul
 
 ---
 
+## 🚀 Quick Access Dashboard Links
+
+When running locally, access the interactive interfaces and APIs via these links:
+
+| Interface | Direct URL | Description |
+|---|---|---|
+| **🧪 Interactive Decision Console** | **[http://localhost:3000/irrigation/decision](http://localhost:3000/irrigation/decision)** | **Primary experimentation interface**: Tune soil, weather, crop phenology, and water parameters, and execute the 10-agent LangGraph pipeline in real time. |
+| **📊 Farm Overview Dashboard** | **[http://localhost:3000](http://localhost:3000)** | Multi-zone farm monitoring, live weather gauges, and daily virtual simulation stepper. |
+| **📖 Backend Swagger API Docs** | **[http://127.0.0.1:8080/docs](http://127.0.0.1:8080/docs)** | Interactive OpenAPI / Swagger UI to test and execute all backend REST endpoints. |
+| **💓 System Health Check** | **[http://127.0.0.1:8080/api/v1/health](http://127.0.0.1:8080/api/v1/health)** | Live FastAPI system and database connectivity health probe. |
+
+---
+
 ## Project Overview
 
 Agriculture accounts for approximately 70% of global freshwater withdrawals, with conventional calendar-based irrigation often leading to significant over-irrigation, deep drainage runoff, and nutrient leaching. Conversely, under-irrigation induces acute crop moisture stress, impairing yield.
@@ -97,7 +110,7 @@ python -m app.database.seed
 pytest -v
 
 # Start FastAPI backend server
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8080
 ```
 
 ### 3. Frontend Setup
@@ -107,19 +120,20 @@ npm install
 npm run build
 npm run dev
 ```
-Open `http://localhost:3000` to interact with the console.
+Open **`http://localhost:3000/irrigation/decision`** to access the interactive experimentation console, or **`http://localhost:3000`** for the overview dashboard.
 
 ---
 
 ## API Documentation
 
 When the backend server is running, interactive Swagger UI documentation is available at:
-`http://localhost:8000/docs`
+**`http://127.0.0.1:8080/docs`**
 
 Key API Endpoints:
-- `GET /api/v1/health`: System health status
+- `POST /api/v1/irrigation/decision`: Execute multi-agent irrigation decision with custom agricultural inputs
+- `GET /api/v1/irrigation/history`: Query persistent execution and decision audit history
+- `GET /api/v1/health`: System and database health status
 - `GET /api/v1/farms`: List all active farms, fields, and zones
 - `GET /api/v1/crops`: Seeded FAO-56 crop database
 - `POST /api/v1/agents/run`: Trigger full multi-agent orchestration workflow
 - `POST /api/v1/simulation/advance`: Advance virtual farm IoT telemetry and day cycle
-- `GET /api/v1/agents/zones/{zone_id}/history`: Zone irrigation history records
