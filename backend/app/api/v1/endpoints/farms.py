@@ -12,9 +12,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
-from app.repositories.repositories import FarmRepository, FieldRepository, SoilProfileRepository, ZoneRepository
+from app.repositories.repositories import (
+    FarmRepository,
+    FieldRepository,
+    SoilProfileRepository,
+    ZoneRepository,
+)
+from app.schemas.agent_state import AgentState, RequestContext, ZoneIrrigationPlan
 from app.schemas.common import APIResponse
+from app.service.schedule_coordinator import FarmScheduleCoordinator, FarmScheduleSummary
 from app.service.soil_physics import compute_soil_water_status
+from app.agents.irrigation.zone_irrigation_agent import ZoneIrrigationAgent
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +63,20 @@ class FieldOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class FarmScheduleOut(BaseModel):
+    farm_id: int
+    farm_name: str
+    total_farm_volume_liters: float
+    total_farm_volume_mm_avg: float
+    total_pumping_duration_minutes: float
+    max_concurrent_flow_l_h: float
+    pump_capacity_l_h: float
+    conflicts_resolved: int
+    rationing_applied: bool
+    zones_requiring_irrigation: int
+    scheduled_zones: list[ZoneIrrigationPlan]
 
 
 class FarmOut(BaseModel):
@@ -197,4 +219,55 @@ def get_farm(farm_id: int, db: Session = Depends(get_db)):
             fields=field_list,
         ),
         message="Farm retrieved successfully.",
+    )
+
+
+@router.get("/{farm_id}/schedule", response_model=APIResponse[FarmScheduleOut])
+def get_farm_schedule(
+    farm_id: int,
+    water_budget_liters: float | None = None,
+    pump_capacity_l_h: float = 50000.0,
+    db: Session = Depends(get_db),
+):
+    """
+    Generate the consolidated multi-zone irrigation schedule for the farm.
+    Deconflicts overlapping time windows and enforces hydraulic pump capacity.
+    """
+    farm = FarmRepository(db).get_by_id(farm_id)
+    if not farm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Farm {farm_id} not found.")
+
+    state = AgentState()
+    state.request = RequestContext(
+        farm_id=farm_id,
+        override_available_water_liters=water_budget_liters,
+    )
+
+    agent = ZoneIrrigationAgent(db=db)
+    result_state = agent.execute(state)
+
+    coordinator = FarmScheduleCoordinator(
+        pump_capacity_l_h=pump_capacity_l_h,
+        water_budget_liters=water_budget_liters,
+    )
+    summary = coordinator.coordinate(result_state.zone_plans)
+
+    schedule_data = FarmScheduleOut(
+        farm_id=farm.id,
+        farm_name=farm.name,
+        total_farm_volume_liters=summary.total_farm_volume_liters,
+        total_farm_volume_mm_avg=summary.total_farm_volume_mm_avg,
+        total_pumping_duration_minutes=summary.total_pumping_duration_minutes,
+        max_concurrent_flow_l_h=summary.max_concurrent_flow_l_h,
+        pump_capacity_l_h=summary.pump_capacity_l_h,
+        conflicts_resolved=summary.conflicts_resolved,
+        rationing_applied=summary.rationing_applied,
+        zones_requiring_irrigation=summary.zones_requiring_irrigation,
+        scheduled_zones=summary.scheduled_zones,
+    )
+
+    return APIResponse(
+        success=True,
+        data=schedule_data,
+        message="Consolidated multi-zone farm schedule generated successfully.",
     )

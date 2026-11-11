@@ -14,6 +14,7 @@ import type {
   ConservationSummary,
   RLBenchmarkRequest,
   PolicyComparisonOut,
+  FarmScheduleOut,
 } from '../../types';
 
 export interface APIResponse<T> {
@@ -161,6 +162,27 @@ export const benchmarkRLPolicy = async (
   );
   if (!res.data.success) {
     throw new Error(res.data.error || res.data.message || 'PPO policy benchmarking failed');
+  }
+  return res.data.data;
+};
+
+// ─── Task 3.2: Multi-Zone Farm Schedule & Hydraulic Deconfliction ────────────
+
+export const fetchFarmSchedule = async (
+  farmId: number,
+  waterBudgetLiters?: number,
+  pumpCapacityLh: number = 50000.0
+): Promise<FarmScheduleOut> => {
+  const params: Record<string, any> = { pump_capacity_l_h: pumpCapacityLh };
+  if (waterBudgetLiters !== undefined && waterBudgetLiters !== null) {
+    params.water_budget_liters = waterBudgetLiters;
+  }
+  const res = await axios.get<APIResponse<FarmScheduleOut>>(
+    `/api/v1/farms/${farmId}/schedule`,
+    { params }
+  );
+  if (!res.data.success) {
+    throw new Error(res.data.error || res.data.message || 'Failed to fetch farm schedule');
   }
   return res.data.data;
 };

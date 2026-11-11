@@ -37,6 +37,7 @@ from app.repositories.repositories import (
 from app.schemas.agent_state import AgentState, IrrigationPriority, ZoneIrrigationPlan
 from app.service.crop_phenology import determine_growth_stage_and_kc
 from app.service.irrigation_rules import DecisionOutcome, evaluate_irrigation_decision
+from app.service.schedule_coordinator import FarmScheduleCoordinator
 from app.service.soil_physics import compute_soil_water_status
 
 logger = logging.getLogger(__name__)
@@ -130,12 +131,26 @@ class ZoneIrrigationAgent(BaseAgent):
             )
             zone_plans.append(plan)
 
-        state.zone_plans = zone_plans
+        # Multi-Zone Farm Schedule Deconfliction & Hydraulic Coordination
+        available_budget = (
+            state.request.override_available_water_liters
+            if state.request and state.request.override_available_water_liters is not None
+            else None
+        )
+        coordinator = FarmScheduleCoordinator(
+            pump_capacity_l_h=50000.0,
+            irrigation_start_hour=6,
+            water_budget_liters=available_budget,
+        )
+        summary = coordinator.coordinate(zone_plans)
+        state.zone_plans = summary.scheduled_zones
 
         self._log_info(
-            "ZoneIrrigationAgent: generated %d zone plans — %d zones requiring irrigation",
-            len(zone_plans),
-            sum(1 for p in zone_plans if p.irrigation_required),
+            "ZoneIrrigationAgent: coordinated %d zone plans (%d requiring irrigation, %d conflicts staggered, %s L total)",
+            len(state.zone_plans),
+            summary.zones_requiring_irrigation,
+            summary.conflicts_resolved,
+            f"{summary.total_farm_volume_liters:,.0f}",
         )
         return state
 
@@ -247,6 +262,10 @@ class ZoneIrrigationAgent(BaseAgent):
             stress_index=soil_status.soil_stress_index,
             confidence=outcome.confidence,
             evidence=evidence,
+            crop_name=zone.crop_name or "Wheat",
+            area_ha=zone.area_ha or 1.0,
+            irrigation_method=zone.irrigation_method or "drip",
+            flow_rate_l_h=25000.0,
         )
 
     # ------------------------------------------------------------------ #

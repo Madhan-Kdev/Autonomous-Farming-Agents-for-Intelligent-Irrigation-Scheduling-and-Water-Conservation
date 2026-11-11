@@ -55,6 +55,7 @@ import {
 import { FAO56BreakdownModal } from './components/FAO56BreakdownModal';
 import { WaterConservationBoard } from './components/WaterConservationBoard';
 import { PPOBenchmarkCard } from './components/PPOBenchmarkCard';
+import { ConsolidatedScheduleCard } from './components/ConsolidatedScheduleCard';
 
 interface VirtualFarmViewProps {
   onNavigateToDecision?: (farmId: number, zoneId?: number) => void;
@@ -1602,6 +1603,14 @@ export const VirtualFarmView: React.FC<VirtualFarmViewProps> = ({
           farmId={selectedFarm.id}
           selectedZoneMoisture={selectedZone?.latest_soil_moisture_pct}
           selectedCropName={selectedZone?.crop_name || 'Wheat'}
+        />
+      )}
+
+      {/* ── Consolidated Multi-Zone Farm Schedule & Hydraulic Deconfliction ─ */}
+      {selectedFarm && (
+        <ConsolidatedScheduleCard
+          farmId={selectedFarm.id}
+          farmName={selectedFarm.name}
         />
       )}
 

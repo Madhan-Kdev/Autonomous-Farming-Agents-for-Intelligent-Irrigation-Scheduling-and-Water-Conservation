@@ -217,6 +217,20 @@ class ZoneIrrigationPlan(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     evidence: list[str] = Field(default_factory=list)
 
+    # Multi-zone coordination & hydraulic deconfliction attributes
+    crop_name: str = ""
+    area_ha: float = 1.0
+    irrigation_method: str = "drip"
+    flow_rate_l_h: float = 25000.0
+    volume_liters: float = 0.0
+    duration_minutes: float = 0.0
+    start_time: str = ""
+    end_time: str = ""
+    sequence_order: int = 1
+    conflict_detected: bool = False
+    rationing_applied: bool = False
+    original_volume_mm: float | None = None
+
 
 class IrrigationDecisionContext(BaseModel):
     """

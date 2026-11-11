@@ -240,6 +240,18 @@ export interface ZoneIrrigationPlan {
   priority: string;
   stress_index: number;
   evidence: string[];
+  crop_name?: string;
+  area_ha?: number;
+  irrigation_method?: string;
+  flow_rate_l_h?: number;
+  volume_liters?: number;
+  duration_minutes?: number;
+  start_time?: string;
+  end_time?: string;
+  sequence_order?: number;
+  conflict_detected?: boolean;
+  rationing_applied?: boolean;
+  original_volume_mm?: number | null;
 }
 
 export interface OptimizationContext {
@@ -406,4 +418,20 @@ export interface PolicyComparisonOut {
   water_savings_vs_rule_pct: number;
   alignment: 'AGREE' | 'DEFICIT_SAVINGS' | 'RAIN_HARVEST' | 'DIVERGENT';
   synthesis: string;
+}
+
+// ─── Task 3.2: Multi-Zone Farm Schedule & Hydraulic Deconfliction ────────────
+
+export interface FarmScheduleOut {
+  farm_id: number;
+  farm_name: string;
+  total_farm_volume_liters: number;
+  total_farm_volume_mm_avg: number;
+  total_pumping_duration_minutes: number;
+  max_concurrent_flow_l_h: number;
+  pump_capacity_l_h: number;
+  conflicts_resolved: number;
+  rationing_applied: boolean;
+  zones_requiring_irrigation: number;
+  scheduled_zones: ZoneIrrigationPlan[];
 }

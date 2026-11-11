@@ -14,7 +14,7 @@ import os
 # This prevents pydantic-settings from loading conflicting system vars.
 # ------------------------------------------------------------------ #
 _TEST_ENV = {
-    "DATABASE_URL": "postgresql+psycopg://postgres:test@localhost:5432/autonomous_farming_test",
+    "DATABASE_URL": "postgresql+psycopg://postgres:FarmAgent2024!@localhost:5432/autonomous_farming",
     "APP_NAME": "Autonomous Farming Agents Test",
     "APP_ENV": "development",
     "DEBUG": "false",
