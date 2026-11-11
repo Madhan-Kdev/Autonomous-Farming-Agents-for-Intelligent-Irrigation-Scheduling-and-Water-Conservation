@@ -9,6 +9,9 @@ import type {
   BatchAdvanceOut,
   IrrigationHistoryRecord,
   SoilTelemetryRecord,
+  ET0DerivationOut,
+  CalculateET0Request,
+  ConservationSummary,
 } from '../../types';
 
 export interface APIResponse<T> {
@@ -92,5 +95,56 @@ export const fetchZoneSoilHistory = async (
     `/api/v1/agents/zones/${zoneId}/soil-history?limit=${limit}`
   );
   return res.data.success ? res.data.data : [];
+};
+
+export const fetchET0Derivation = async (
+  farmId: number = 1,
+  cropName?: string,
+  growthStage: string = 'mid',
+  targetDate?: string
+): Promise<ET0DerivationOut> => {
+  const params = new URLSearchParams();
+  params.append('farm_id', farmId.toString());
+  if (cropName) params.append('crop_name', cropName);
+  if (growthStage) params.append('growth_stage', growthStage);
+  if (targetDate) params.append('target_date', targetDate);
+
+  const res = await axios.get<APIResponse<ET0DerivationOut>>(
+    `/api/v1/et0/derivation?${params.toString()}`
+  );
+  if (!res.data.success) {
+    throw new Error(res.data.error || res.data.message || 'Failed to fetch ET0 derivation');
+  }
+  return res.data.data;
+};
+
+export const calculateCustomET0 = async (
+  req: CalculateET0Request
+): Promise<ET0DerivationOut> => {
+  const res = await axios.post<APIResponse<ET0DerivationOut>>(
+    '/api/v1/et0/calculate',
+    req
+  );
+  if (!res.data.success) {
+    throw new Error(res.data.error || res.data.message || 'Custom ET0 calculation failed');
+  }
+  return res.data.data;
+};
+
+// ─── Task 2.2: Water Conservation Summary Board ──────────────────────────────
+
+export const fetchConservationSummary = async (
+  farmId: number,
+  days: number = 14,
+  conventionalDailyMm: number = 6.0
+): Promise<ConservationSummary> => {
+  const res = await axios.get<APIResponse<ConservationSummary>>(
+    '/api/v1/analytics/conservation-summary',
+    { params: { farm_id: farmId, days, conventional_daily_mm: conventionalDailyMm } }
+  );
+  if (!res.data.success) {
+    throw new Error(res.data.error || res.data.message || 'Failed to load conservation summary');
+  }
+  return res.data.data;
 };
 

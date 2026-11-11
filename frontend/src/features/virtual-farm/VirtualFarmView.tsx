@@ -52,6 +52,8 @@ import {
   fetchZoneIrrigationHistory,
   fetchZoneSoilHistory,
 } from './api';
+import { FAO56BreakdownModal } from './components/FAO56BreakdownModal';
+import { WaterConservationBoard } from './components/WaterConservationBoard';
 
 interface VirtualFarmViewProps {
   onNavigateToDecision?: (farmId: number, zoneId?: number) => void;
@@ -87,6 +89,9 @@ export const VirtualFarmView: React.FC<VirtualFarmViewProps> = ({
   const [batchRainMm, setBatchRainMm] = useState<number>(0);
   const [batchAutoRefillPct, setBatchAutoRefillPct] = useState<number>(18.0);
   const [lastBatchResult, setLastBatchResult] = useState<BatchAdvanceOut | null>(null);
+
+  // FAO-56 Modal State
+  const [et0ModalOpen, setEt0ModalOpen] = useState<boolean>(false);
 
   // History & Telemetry State
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
@@ -725,10 +730,18 @@ export const VirtualFarmView: React.FC<VirtualFarmViewProps> = ({
           {/* Environmental Telemetry Bar */}
           <div className="mt-4 pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
             <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setEt0ModalOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-medium transition cursor-pointer"
+                title="Inspect full 13-step thermodynamic FAO-56 derivation and crop ETc"
+              >
                 <CloudSun className="w-4 h-4 text-amber-400" />
                 <span>Simulated ET₀: {lastSimulationStep?.simulated_et0_mm?.toFixed(1) || '4.2'} mm/day</span>
-              </span>
+                <span className="text-[10px] text-amber-400 font-bold ml-1 bg-amber-500/20 px-1.5 py-0.5 rounded">
+                  FAO-56 Breakdown &rarr;
+                </span>
+              </button>
               <span className="flex items-center gap-1.5">
                 <Droplets className="w-4 h-4 text-sky-400" />
                 <span>Rainfall: {lastSimulationStep?.simulated_rain_mm?.toFixed(1) || '0.0'} mm</span>
@@ -768,7 +781,14 @@ export const VirtualFarmView: React.FC<VirtualFarmViewProps> = ({
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5">
                     Crop: <span className="text-slate-200 font-semibold">{selectedZone.crop_name}</span> •{' '}
-                    {selectedZone.area_ha} Hectares
+                    {selectedZone.area_ha} Hectares{' '}
+                    <button
+                      type="button"
+                      onClick={() => setEt0ModalOpen(true)}
+                      className="text-amber-400 hover:text-amber-300 text-[10px] underline ml-1 font-medium cursor-pointer"
+                    >
+                      (View ETc Breakdown)
+                    </button>
                   </p>
                 </div>
 
@@ -1555,6 +1575,36 @@ export const VirtualFarmView: React.FC<VirtualFarmViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Water Conservation Summary Board ─────────────────────────────── */}
+      {selectedFarm && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+          <div className="flex items-center gap-3 border-b border-slate-800 pb-4 mb-5">
+            <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+              <TrendingDown className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-100">Water Conservation Summary</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Aggregated water-use metrics, IWUE, and model-based savings estimate vs. conventional baseline
+              </p>
+            </div>
+          </div>
+          <WaterConservationBoard farmId={selectedFarm.id} />
+        </div>
+      )}
+
+      {/* FAO-56 Penman-Monteith Thermodynamic Breakdown Modal */}
+      {selectedFarm && (
+        <FAO56BreakdownModal
+          open={et0ModalOpen}
+          onClose={() => setEt0ModalOpen(false)}
+          farmId={selectedFarm.id}
+          farmName={selectedFarm.name}
+          selectedCropName={selectedZone?.crop_name || 'Wheat'}
+          selectedZoneName={selectedZone?.name}
+        />
       )}
     </div>
   );

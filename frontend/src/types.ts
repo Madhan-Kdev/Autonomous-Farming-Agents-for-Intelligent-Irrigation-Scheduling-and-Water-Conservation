@@ -132,6 +132,63 @@ export interface SoilTelemetryRecord {
   notes?: string | null;
 }
 
+export interface ET0Step {
+  step_number: number;
+  title: string;
+  fao_equation: string;
+  formula_latex: string;
+  result_value: number;
+  result_unit: string;
+  scientific_note: string;
+}
+
+export interface CropETcOut {
+  crop_name: string;
+  growth_stage: string;
+  kc: number;
+  etc_mm: number;
+  daily_water_liters_per_ha: number;
+}
+
+export interface ET0DerivationOut {
+  et0_mm: number;
+  radiation_term_mm: number;
+  aerodynamic_term_mm: number;
+  radiation_share_pct: number;
+  aerodynamic_share_pct: number;
+  t_mean_c: number;
+  pressure_kpa: number;
+  gamma_kpa_c: number;
+  es_kpa: number;
+  ea_kpa: number;
+  vpd_kpa: number;
+  delta_kpa_c: number;
+  ra_mj_m2: number;
+  rso_mj_m2: number;
+  rns_mj_m2: number;
+  rnl_mj_m2: number;
+  rn_mj_m2: number;
+  wind_speed_m_s: number;
+  solar_radiation_mj_m2: number;
+  crop_etc?: CropETcOut | null;
+  steps: ET0Step[];
+}
+
+export interface CalculateET0Request {
+  temp_max_c: number;
+  temp_min_c: number;
+  humidity_max_pct?: number;
+  humidity_min_pct?: number;
+  wind_speed_m_s?: number;
+  solar_radiation_mj_m2?: number;
+  altitude_m?: number;
+  latitude_deg?: number;
+  day_of_year?: number | null;
+  crop_name?: string | null;
+  growth_stage?: string | null;
+  custom_kc?: number | null;
+}
+
 export interface WeatherContext {
   temperature_c?: number;
   humidity_pct?: number;
@@ -257,4 +314,47 @@ export interface ScenarioOverrides {
   override_solar_radiation_mjm2?: number;
   override_soil_moisture_pct?: number;
   crop_type?: string;
+}
+
+// ─── Task 2.2: Water Conservation Summary Board ──────────────────────────────
+
+export interface DailyConservationPoint {
+  date: string;
+  water_applied_mm: number;
+  etc_demand_mm: number;
+  precipitation_mm: number;
+  conventional_mm: number;
+  saved_mm: number;
+  decisions: string[];
+}
+
+export interface ConservationSummary {
+  farm_id: number;
+  farm_name: string;
+  window_days: number;
+  window_start: string;
+  window_end: string;
+  // Actual intelligent-system metrics
+  total_water_applied_mm: number;
+  total_water_applied_liters: number;
+  total_etc_demand_mm: number;
+  total_precipitation_mm: number;
+  // Decision breakdown
+  total_decisions: number;
+  decisions_required: number;
+  decisions_postponed: number;
+  decisions_not_required: number;
+  decisions_manual: number;
+  // Efficiency
+  iwue: number;
+  average_confidence: number;
+  // Conservation estimate (model-based)
+  conventional_daily_mm: number;
+  conventional_total_mm: number;
+  water_saved_mm: number;
+  water_saved_pct: number;
+  water_saved_liters: number;
+  // Trend
+  daily_trend: DailyConservationPoint[];
+  disclaimer: string;
 }
