@@ -12,6 +12,8 @@ import type {
   ET0DerivationOut,
   CalculateET0Request,
   ConservationSummary,
+  RLBenchmarkRequest,
+  PolicyComparisonOut,
 } from '../../types';
 
 export interface APIResponse<T> {
@@ -148,3 +150,17 @@ export const fetchConservationSummary = async (
   return res.data.data;
 };
 
+// ─── Task 3.1: DRL PPO Benchmark ─────────────────────────────────────────────
+
+export const benchmarkRLPolicy = async (
+  req: RLBenchmarkRequest
+): Promise<PolicyComparisonOut> => {
+  const res = await axios.post<APIResponse<PolicyComparisonOut>>(
+    '/api/v1/rl/benchmark',
+    req
+  );
+  if (!res.data.success) {
+    throw new Error(res.data.error || res.data.message || 'PPO policy benchmarking failed');
+  }
+  return res.data.data;
+};

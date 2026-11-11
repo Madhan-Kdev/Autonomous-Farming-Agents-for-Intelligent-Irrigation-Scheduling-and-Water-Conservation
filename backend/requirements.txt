@@ -30,10 +30,11 @@ langchain==0.3.25
 langchain-core==0.3.57
 langchain-groq==0.3.2
 
-# --- Data / ML (foundations for later phases) ---
+# --- Data / ML / DRL (foundations for later phases) ---
 numpy==2.2.5
 pandas==2.2.3
 scikit-learn==1.6.1
+gymnasium>=1.0.0
 
 # --- Testing ---
 pytest==8.3.5

@@ -358,3 +358,52 @@ export interface ConservationSummary {
   daily_trend: DailyConservationPoint[];
   disclaimer: string;
 }
+
+// ─── Task 3.1: DRL PPO Benchmark ─────────────────────────────────────────────
+
+export interface RLBenchmarkRequest {
+  farm_id?: number;
+  zone_id?: number | null;
+  soil_moisture_pct: number;
+  field_capacity_pct: number;
+  wilting_point_pct: number;
+  et0_mm: number;
+  etc_mm: number;
+  forecast_rain_mm: number;
+  temperature_c: number;
+  growth_stage: string;
+  crop_name: string;
+}
+
+export interface RuleDecisionSummary {
+  decision: string;
+  recommended_volume_mm: number;
+  recommended_duration_min: number;
+  priority: string;
+  urgency_score: number;
+  confidence: number;
+  rationale: string;
+  influencing_factors: string[];
+}
+
+export interface PPOPolicySummary {
+  action_mm: number;
+  action_name: string;
+  action_probabilities: Record<string, number>;
+  state_value: number;
+  policy_confidence: number;
+  crop_stress_anticipated: number;
+  water_saving_bias: number;
+  rationale: string;
+  feature_contributions: Record<string, number>;
+}
+
+export interface PolicyComparisonOut {
+  state_summary: Record<string, any>;
+  rule_decision: RuleDecisionSummary;
+  ppo_policy: PPOPolicySummary;
+  volume_delta_mm: number;
+  water_savings_vs_rule_pct: number;
+  alignment: 'AGREE' | 'DEFICIT_SAVINGS' | 'RAIN_HARVEST' | 'DIVERGENT';
+  synthesis: string;
+}

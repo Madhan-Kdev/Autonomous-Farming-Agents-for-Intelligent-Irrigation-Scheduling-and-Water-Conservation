@@ -7,7 +7,7 @@ is applied by the main application router.
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import agents, analytics, crops, et0, farms, health, irrigation, simulation
+from app.api.v1.endpoints import agents, analytics, crops, et0, farms, health, irrigation, rl, simulation
 
 router = APIRouter()
 
@@ -19,3 +19,4 @@ router.include_router(irrigation.router)
 router.include_router(simulation.router)
 router.include_router(et0.router)
 router.include_router(analytics.router)
+router.include_router(rl.router)

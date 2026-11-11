@@ -54,6 +54,7 @@ import {
 } from './api';
 import { FAO56BreakdownModal } from './components/FAO56BreakdownModal';
 import { WaterConservationBoard } from './components/WaterConservationBoard';
+import { PPOBenchmarkCard } from './components/PPOBenchmarkCard';
 
 interface VirtualFarmViewProps {
   onNavigateToDecision?: (farmId: number, zoneId?: number) => void;
@@ -1593,6 +1594,15 @@ export const VirtualFarmView: React.FC<VirtualFarmViewProps> = ({
           </div>
           <WaterConservationBoard farmId={selectedFarm.id} />
         </div>
+      )}
+
+      {/* ── PPO Deep RL Policy vs Rule-Based Benchmark ───────────────────── */}
+      {selectedFarm && (
+        <PPOBenchmarkCard
+          farmId={selectedFarm.id}
+          selectedZoneMoisture={selectedZone?.latest_soil_moisture_pct}
+          selectedCropName={selectedZone?.crop_name || 'Wheat'}
+        />
       )}
 
       {/* FAO-56 Penman-Monteith Thermodynamic Breakdown Modal */}
