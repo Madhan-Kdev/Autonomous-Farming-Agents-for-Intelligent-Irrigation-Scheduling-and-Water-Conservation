@@ -2,20 +2,6 @@
 
 A completely software-based Agentic AI system for intelligent irrigation scheduling and water conservation.
 
----
-
-## 🚀 Quick Access Dashboard Links
-
-When running locally, access the interactive interfaces and APIs via these links:
-
-| Interface | Direct URL | Description |
-|---|---|---|
-| **🧪 Interactive Decision Console** | **[http://localhost:3000/irrigation/decision](http://localhost:3000/irrigation/decision)** | **Primary experimentation interface**: Tune soil, weather, crop phenology, and water parameters, and execute the 10-agent LangGraph pipeline in real time. |
-| **📊 Farm Overview Dashboard** | **[http://localhost:3000](http://localhost:3000)** | Multi-zone farm monitoring, live weather gauges, and daily virtual simulation stepper. |
-| **📖 Backend Swagger API Docs** | **[http://127.0.0.1:8080/docs](http://127.0.0.1:8080/docs)** | Interactive OpenAPI / Swagger UI to test and execute all backend REST endpoints. |
-| **💓 System Health Check** | **[http://127.0.0.1:8080/api/v1/health](http://127.0.0.1:8080/api/v1/health)** | Live FastAPI system and database connectivity health probe. |
-
----
 
 ## Project Overview
 
