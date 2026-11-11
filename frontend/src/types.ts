@@ -79,6 +79,30 @@ export interface SimulationStepOut {
   zone_moisture_levels: Record<number, number>;
 }
 
+export interface BatchAdvanceRequest {
+  farm_id: number;
+  days?: number;
+  force_rain_daily_mm?: number | null;
+  zone_irrigation_daily_mm?: Record<number, number>;
+  auto_irrigate_threshold_pct?: number | null;
+}
+
+export interface BatchAdvanceSummary {
+  total_rain_mm: number;
+  total_et0_mm: number;
+  zone_final_moistures: Record<number, number>;
+  zone_stress_days: Record<number, number>;
+}
+
+export interface BatchAdvanceOut {
+  farm_id: number;
+  days_simulated: number;
+  start_date: string;
+  end_date: string;
+  daily_results: SimulationStepOut[];
+  summary: BatchAdvanceSummary;
+}
+
 export interface IrrigationHistoryRecord {
   id: number;
   scheduled_at: string | null;

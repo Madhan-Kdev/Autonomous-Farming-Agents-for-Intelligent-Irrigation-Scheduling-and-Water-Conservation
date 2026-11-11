@@ -18,6 +18,9 @@ import {
   BarChart2,
   Activity,
   Clock,
+  Sun,
+  CloudRain,
+  Zap,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -36,6 +39,7 @@ import type {
   Zone,
   ManualIrrigationOut,
   SimulationStepOut,
+  BatchAdvanceOut,
   IrrigationHistoryRecord,
   SoilTelemetryRecord,
 } from '../../types';
@@ -44,6 +48,7 @@ import {
   fetchAllFarms,
   applyManualIrrigation,
   advanceSimulationDay,
+  batchAdvanceSimulation,
   fetchZoneIrrigationHistory,
   fetchZoneSoilHistory,
 } from './api';
@@ -74,6 +79,14 @@ export const VirtualFarmView: React.FC<VirtualFarmViewProps> = ({
   // Simulation Stepper State
   const [forcedRainMm, setForcedRainMm] = useState<number>(0);
   const [lastSimulationStep, setLastSimulationStep] = useState<SimulationStepOut | null>(null);
+
+  // Batch Scenario Simulation State
+  const [batchModalOpen, setBatchModalOpen] = useState<boolean>(false);
+  const [batchDays, setBatchDays] = useState<number>(7);
+  const [batchScenario, setBatchScenario] = useState<'drydown' | 'monsoon' | 'auto-refill' | 'custom'>('drydown');
+  const [batchRainMm, setBatchRainMm] = useState<number>(0);
+  const [batchAutoRefillPct, setBatchAutoRefillPct] = useState<number>(18.0);
+  const [lastBatchResult, setLastBatchResult] = useState<BatchAdvanceOut | null>(null);
 
   // History & Telemetry State
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
@@ -274,6 +287,67 @@ export const VirtualFarmView: React.FC<VirtualFarmViewProps> = ({
     }
   };
 
+  const handleBatchSimulation = async (
+    days: number,
+    scenario: 'drydown' | 'monsoon' | 'auto-refill' | 'custom',
+    rainOverride?: number,
+    autoRefillThreshold?: number
+  ) => {
+    if (!selectedFarm) return;
+    setActionLoading(true);
+    setStatusMessage(`Running ${days}-day batch simulation [${scenario}]...`);
+    try {
+      let rainMm: number | null = null;
+      let threshold: number | null = null;
+
+      if (scenario === 'drydown') {
+        rainMm = 0.0;
+      } else if (scenario === 'monsoon') {
+        rainMm = rainOverride !== undefined ? rainOverride : 15.0;
+      } else if (scenario === 'auto-refill') {
+        threshold = autoRefillThreshold !== undefined ? autoRefillThreshold : 18.0;
+      } else if (scenario === 'custom') {
+        rainMm = rainOverride !== undefined ? rainOverride : (batchRainMm > 0 ? batchRainMm : null);
+        threshold =
+          autoRefillThreshold !== undefined
+            ? autoRefillThreshold
+            : batchAutoRefillPct > 0
+            ? batchAutoRefillPct
+            : null;
+      }
+
+      const res = await batchAdvanceSimulation({
+        farm_id: selectedFarm.id,
+        days: days,
+        force_rain_daily_mm: rainMm,
+        auto_irrigate_threshold_pct: threshold,
+      });
+
+      setLastBatchResult(res);
+      const latestDaily = res.daily_results[res.daily_results.length - 1];
+      setLastSimulationStep(latestDaily);
+      setStatusMessage(
+        `Batch simulation of ${res.days_simulated} days completed (${res.start_date} to ${res.end_date}). Total Rain: ${res.summary.total_rain_mm} mm, Total ET0: ${res.summary.total_et0_mm} mm.`
+      );
+
+      // Refresh farm digital twin state
+      const updatedFarm = await fetchFarmDigitalTwin(selectedFarm.id);
+      if (updatedFarm) {
+        setSelectedFarm(updatedFarm);
+        if (selectedZone) {
+          const updatedZone = updatedFarm.fields
+            .flatMap((f) => f.zones)
+            .find((z) => z.id === selectedZone.id);
+          if (updatedZone) setSelectedZone(updatedZone);
+        }
+      }
+    } catch (err: any) {
+      setStatusMessage(`Batch simulation failed: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // Helper to determine zone color by moisture
   const getZoneStatus = (zone: Zone) => {
     const moisture = zone.latest_soil_moisture_pct ?? 22.0;
@@ -348,23 +422,91 @@ export const VirtualFarmView: React.FC<VirtualFarmViewProps> = ({
           <button
             onClick={() => handleAdvanceDay(1)}
             disabled={actionLoading}
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium transition disabled:opacity-50"
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition disabled:opacity-50"
+            title="Step simulation forward by 1 day"
           >
-            <Calendar className="w-4 h-4 text-sky-400" />
+            <Calendar className="w-3.5 h-3.5 text-sky-400" />
             <span>Step 1 Day</span>
           </button>
 
           <button
-            onClick={() => handleAdvanceDay(3, 0.0)}
+            onClick={() => handleBatchSimulation(7, 'drydown')}
             disabled={actionLoading}
-            className="flex items-center gap-2 bg-amber-950/60 hover:bg-amber-900/60 border border-amber-600/40 text-amber-300 px-4 py-2 rounded-xl text-sm font-medium transition disabled:opacity-50"
-            title="Advance 3 days with zero rainfall to simulate drought drydown"
+            className="flex items-center gap-2 bg-amber-950/60 hover:bg-amber-900/60 border border-amber-600/40 text-amber-300 px-3.5 py-2 rounded-xl text-xs font-semibold transition disabled:opacity-50"
+            title="Advance 7 consecutive days with zero rainfall to simulate drought drydown"
           >
-            <TrendingDown className="w-4 h-4 text-amber-400" />
-            <span>Simulate 3-Day Drydown</span>
+            <Sun className="w-3.5 h-3.5 text-amber-400" />
+            <span>7-Day Drydown</span>
+          </button>
+
+          <button
+            onClick={() => setBatchModalOpen(true)}
+            disabled={actionLoading}
+            className="flex items-center gap-2 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-600/40 text-emerald-300 px-4 py-2 rounded-xl text-xs font-bold transition disabled:opacity-50"
+            title="Configure and run multi-day agricultural scenarios"
+          >
+            <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Multi-Day Scenarios...</span>
           </button>
         </div>
       </div>
+
+      {/* Batch Simulation Summary Banner */}
+      {lastBatchResult && (
+        <div className="p-4 bg-sky-950/40 border border-sky-500/40 rounded-2xl text-xs space-y-3 animate-fadeIn">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-sky-500/20 pb-2">
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 bg-sky-500/20 rounded-lg text-sky-400">
+                <Play className="w-4 h-4 fill-sky-400" />
+              </span>
+              <div>
+                <span className="font-bold text-slate-100 text-sm">
+                  Batch Simulation Results ({lastBatchResult.days_simulated} Days)
+                </span>
+                <span className="text-slate-400 text-xs ml-2">
+                  {lastBatchResult.start_date} &rarr; {lastBatchResult.end_date}
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => setLastBatchResult(null)}
+              className="text-slate-400 hover:text-slate-200 text-xs px-2 py-1 rounded bg-slate-800/60"
+            >
+              Dismiss
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-slate-300">
+            <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-400 block uppercase">Cumulative Rain</span>
+              <span className="text-sm font-bold text-sky-300">{lastBatchResult.summary.total_rain_mm} mm</span>
+            </div>
+            <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-400 block uppercase">Cumulative ET₀</span>
+              <span className="text-sm font-bold text-amber-300">{lastBatchResult.summary.total_et0_mm} mm</span>
+            </div>
+            <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-400 block uppercase">Simulated Steps</span>
+              <span className="text-sm font-bold text-emerald-300">{lastBatchResult.daily_results.length} Days</span>
+            </div>
+            <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-400 block uppercase">Water Stress Days</span>
+              <span className="text-sm font-bold text-red-300">
+                {Object.values(lastBatchResult.summary.zone_stress_days).reduce((a, b) => a + b, 0)} Zone-Days
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-400">
+            <span className="font-semibold text-slate-300">Zone Final Moisture:</span>
+            {Object.entries(lastBatchResult.summary.zone_final_moistures).map(([zid, m]) => (
+              <span key={zid} className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-200">
+                Zone #{zid}: <strong className="text-sky-300">{m}%</strong> (Stress: {lastBatchResult.summary.zone_stress_days[Number(zid)] || 0}d)
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Status banner */}
       {statusMessage && (
@@ -1190,6 +1332,225 @@ export const VirtualFarmView: React.FC<VirtualFarmViewProps> = ({
                 className="px-5 py-2.5 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white shadow-lg shadow-sky-950 transition disabled:opacity-50"
               >
                 {actionLoading ? 'Applying...' : 'Confirm & Apply Water'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Multi-Day Scenario Studio Modal */}
+      {batchModalOpen && selectedFarm && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-6 animate-scaleIn">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                  <Sliders className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">Multi-Day Scenario Studio</h3>
+                  <p className="text-xs text-slate-400">
+                    Farm: <span className="text-slate-200 font-medium">{selectedFarm.name}</span> •{' '}
+                    {allZones.length} Active Zones
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setBatchModalOpen(false)}
+                className="text-slate-400 hover:text-slate-200 text-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Duration Selector */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-300 block">
+                Simulation Horizon (Days):
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {[3, 7, 14, 30].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setBatchDays(d)}
+                    className={`py-2 text-xs font-bold rounded-xl border transition ${
+                      batchDays === d
+                        ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-950'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                    }`}
+                  >
+                    {d} Days
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-3 pt-1">
+                <input
+                  type="range"
+                  min="1"
+                  max="60"
+                  value={batchDays}
+                  onChange={(e) => setBatchDays(Number(e.target.value))}
+                  className="w-full accent-emerald-500"
+                />
+                <span className="text-xs font-mono font-bold text-emerald-300 w-16 text-right">
+                  {batchDays} days
+                </span>
+              </div>
+            </div>
+
+            {/* Scenario Archetype Selection */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-300 block">
+                Agricultural Scenario Archetype:
+              </label>
+              <div className="grid grid-cols-2 gap-2.5">
+                {/* 1. Drydown */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBatchScenario('drydown');
+                    setBatchRainMm(0);
+                  }}
+                  className={`p-3 rounded-xl border text-left transition space-y-1 ${
+                    batchScenario === 'drydown'
+                      ? 'bg-amber-950/40 border-amber-500/60 ring-1 ring-amber-500/50'
+                      : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
+                    <Sun className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Extreme Drydown</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 line-clamp-2">
+                    0 mm rain, zero irrigation. Observe root-zone depletion toward Wilting Point.
+                  </p>
+                </button>
+
+                {/* 2. Monsoon */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBatchScenario('monsoon');
+                    setBatchRainMm(15);
+                  }}
+                  className={`p-3 rounded-xl border text-left transition space-y-1 ${
+                    batchScenario === 'monsoon'
+                      ? 'bg-sky-950/40 border-sky-500/60 ring-1 ring-sky-500/50'
+                      : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-sky-300">
+                    <CloudRain className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Monsoon Rain</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 line-clamp-2">
+                    Consistent daily precipitation. Test FC saturation and deep percolation.
+                  </p>
+                </button>
+
+                {/* 3. Auto-Refill */}
+                <button
+                  type="button"
+                  onClick={() => setBatchScenario('auto-refill')}
+                  className={`p-3 rounded-xl border text-left transition space-y-1 ${
+                    batchScenario === 'auto-refill'
+                      ? 'bg-emerald-950/40 border-emerald-500/60 ring-1 ring-emerald-500/50'
+                      : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-300">
+                    <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Autonomous Refill</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 line-clamp-2">
+                    Auto-irrigate zones whenever volumetric moisture falls below target threshold.
+                  </p>
+                </button>
+
+                {/* 4. Custom */}
+                <button
+                  type="button"
+                  onClick={() => setBatchScenario('custom')}
+                  className={`p-3 rounded-xl border text-left transition space-y-1 ${
+                    batchScenario === 'custom'
+                      ? 'bg-purple-950/40 border-purple-500/60 ring-1 ring-purple-500/50'
+                      : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-purple-300">
+                    <Sliders className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Custom Controls</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 line-clamp-2">
+                    Configure custom daily rainfall overrides and specific refill limits.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* Contextual Parameter Adjustment */}
+            {(batchScenario === 'auto-refill' || batchScenario === 'custom') && (
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-slate-400">Auto-Refill Moisture Threshold:</span>
+                    <span className="font-bold text-emerald-300">{batchAutoRefillPct}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="10"
+                    max="28"
+                    step="0.5"
+                    value={batchAutoRefillPct}
+                    onChange={(e) => setBatchAutoRefillPct(Number(e.target.value))}
+                    className="w-full accent-emerald-500"
+                  />
+                  <span className="text-[10px] text-slate-500 block">
+                    Any zone dropping below this threshold will automatically receive precision water refill.
+                  </span>
+                </div>
+
+                {batchScenario === 'custom' && (
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-400">Daily Rain Override (mm/day):</span>
+                      <span className="font-bold text-sky-300">{batchRainMm} mm</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="50"
+                      step="1"
+                      value={batchRainMm}
+                      onChange={(e) => setBatchRainMm(Number(e.target.value))}
+                      className="w-full accent-sky-500"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setBatchModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-slate-200 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setBatchModalOpen(false);
+                  handleBatchSimulation(batchDays, batchScenario);
+                }}
+                disabled={actionLoading}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950 transition disabled:opacity-50 flex items-center gap-2"
+              >
+                <Play className="w-3.5 h-3.5 fill-white" />
+                <span>{actionLoading ? 'Simulating...' : `Run ${batchDays}-Day Simulation`}</span>
               </button>
             </div>
           </div>

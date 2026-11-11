@@ -78,6 +78,21 @@ class SimulationStepResult:
     zone_moisture_levels: dict[int, float]
 
 
+@dataclass
+class BatchSimulationResult:
+    """Telemetry outputs from a multi-day batch simulation."""
+
+    farm_id: int
+    days_simulated: int
+    start_date: date
+    end_date: date
+    daily_results: list[SimulationStepResult]
+    total_rain_mm: float
+    total_et0_mm: float
+    zone_final_moistures: dict[int, float]
+    zone_stress_days: dict[int, int]
+
+
 class VirtualFarmSimulator:
     """
     Simulates agricultural physics and virtual IoT telemetry across farm zones.
@@ -380,4 +395,98 @@ class VirtualFarmSimulator:
             stress_index_after=round(status_after.soil_stress_index, 4),
             irrigation_record_id=irrig_rec.id,
             soil_profile_id=new_profile.id,
+        )
+
+    def batch_advance(
+        self,
+        farm_id: int,
+        days: int = 7,
+        force_rain_daily_mm: float | None = None,
+        zone_irrigation_daily_mm: dict[int, float] | None = None,
+        auto_irrigate_threshold_pct: float | None = None,
+    ) -> BatchSimulationResult:
+        """
+        Simulate multiple consecutive days across all zones in a virtual farm.
+
+        Parameters
+        ----------
+        farm_id : int
+            Target farm ID.
+        days : int
+            Number of consecutive 24-hour cycles to simulate (1 to 60).
+        force_rain_daily_mm : float | None
+            Fixed rainfall to apply every day (e.g. 0.0 for drought / drydown scenario).
+        zone_irrigation_daily_mm : dict[int, float] | None
+            Scheduled daily irrigation per zone in mm.
+        auto_irrigate_threshold_pct : float | None
+            If specified, any zone whose moisture falls below this threshold
+            automatically receives refill irrigation.
+
+        Returns
+        -------
+        BatchSimulationResult
+        """
+        if days < 1 or days > 60:
+            raise ValueError("days must be between 1 and 60.")
+
+        farm = self.farm_repo.get_by_id(farm_id)
+        if not farm:
+            raise ValueError(f"Farm {farm_id} not found.")
+
+        daily_results: list[SimulationStepResult] = []
+        total_rain = 0.0
+        total_et0 = 0.0
+        stress_days_counter: dict[int, int] = {}
+
+        fields = self.field_repo.get_by_farm(farm_id)
+        all_zones = []
+        for f in fields:
+            all_zones.extend(self.zone_repo.get_active_zones(f.id))
+
+        for z in all_zones:
+            stress_days_counter[z.id] = 0
+
+        for _ in range(days):
+            day_irrigation: dict[int, float] = {}
+            if zone_irrigation_daily_mm:
+                day_irrigation.update(zone_irrigation_daily_mm)
+
+            if auto_irrigate_threshold_pct is not None:
+                for z in all_zones:
+                    latest_soil = self.soil_repo.get_latest_for_zone(z.id)
+                    curr = latest_soil.volumetric_moisture_pct if latest_soil else 22.0
+                    fc = latest_soil.field_capacity_pct if latest_soil else 30.0
+                    if curr <= auto_irrigate_threshold_pct:
+                        refill_mm = max(10.0, round(((fc - curr) / 100.0) * 300.0 / 0.9, 1))
+                        day_irrigation[z.id] = max(day_irrigation.get(z.id, 0.0), refill_mm)
+
+            step_res = self.advance_day(
+                farm_id=farm_id,
+                target_date=None,
+                irrigation_events=day_irrigation,
+                force_rain_mm=force_rain_daily_mm,
+            )
+            daily_results.append(step_res)
+            total_rain += step_res.simulated_rain_mm
+            total_et0 += step_res.simulated_et0_mm
+
+            for z in all_zones:
+                m = step_res.zone_moisture_levels.get(z.id)
+                latest_soil = self.soil_repo.get_latest_for_zone(z.id)
+                wp = latest_soil.wilting_point_pct if latest_soil else 12.0
+                if m is not None and m <= (wp + 3.0):
+                    stress_days_counter[z.id] += 1
+
+        final_moistures = daily_results[-1].zone_moisture_levels if daily_results else {}
+
+        return BatchSimulationResult(
+            farm_id=farm_id,
+            days_simulated=days,
+            start_date=daily_results[0].target_date,
+            end_date=daily_results[-1].target_date,
+            daily_results=daily_results,
+            total_rain_mm=round(total_rain, 1),
+            total_et0_mm=round(total_et0, 1),
+            zone_final_moistures=final_moistures,
+            zone_stress_days=stress_days_counter,
         )

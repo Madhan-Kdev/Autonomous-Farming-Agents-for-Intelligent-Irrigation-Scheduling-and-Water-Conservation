@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_db
 from app.schemas.common import APIResponse
 from app.service.simulator import (
+    BatchSimulationResult,
     ManualIrrigationResult,
     SimulationStepResult,
     VirtualFarmSimulator,
@@ -42,6 +43,39 @@ class SimulationStepOut(BaseModel):
     simulated_et0_mm: float
     simulated_rain_mm: float
     zone_moisture_levels: dict[int, float]
+
+
+class BatchAdvanceRequest(BaseModel):
+    farm_id: int
+    days: int = Field(default=7, ge=1, le=60, description="Number of days to advance (1-60).")
+    force_rain_daily_mm: float | None = Field(
+        default=None,
+        description="Daily rainfall override in mm (e.g. 0.0 for drydown).",
+    )
+    zone_irrigation_daily_mm: dict[int, float] = Field(
+        default_factory=dict,
+        description="Zone ID -> Daily scheduled irrigation in mm.",
+    )
+    auto_irrigate_threshold_pct: float | None = Field(
+        default=None,
+        description="Auto-refill threshold % (if moisture drops below this, water is added).",
+    )
+
+
+class BatchAdvanceSummary(BaseModel):
+    total_rain_mm: float
+    total_et0_mm: float
+    zone_final_moistures: dict[int, float]
+    zone_stress_days: dict[int, int]
+
+
+class BatchAdvanceOut(BaseModel):
+    farm_id: int
+    days_simulated: int
+    start_date: date
+    end_date: date
+    daily_results: list[SimulationStepOut]
+    summary: BatchAdvanceSummary
 
 
 class ManualIrrigationRequest(BaseModel):
@@ -158,6 +192,60 @@ def apply_manual_irrigation(
             success=True,
             data=data,
             message=f"Manual irrigation of {res.volume_applied_mm} mm successfully applied to zone '{res.zone_name}'.",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/batch-advance", response_model=APIResponse[BatchAdvanceOut])
+def batch_advance_simulation(
+    req: BatchAdvanceRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Simulate multiple consecutive days across the virtual farm in a single batch.
+
+    Supports:
+    - Multi-day drydown scenarios (force_rain_daily_mm = 0).
+    - Monsoonal / rainy scenarios (force_rain_daily_mm > 0).
+    - Automated threshold refill or custom zone irrigation schedules.
+    """
+    simulator = VirtualFarmSimulator(db)
+    try:
+        res = simulator.batch_advance(
+            farm_id=req.farm_id,
+            days=req.days,
+            force_rain_daily_mm=req.force_rain_daily_mm,
+            zone_irrigation_daily_mm=req.zone_irrigation_daily_mm,
+            auto_irrigate_threshold_pct=req.auto_irrigate_threshold_pct,
+        )
+        data = BatchAdvanceOut(
+            farm_id=res.farm_id,
+            days_simulated=res.days_simulated,
+            start_date=res.start_date,
+            end_date=res.end_date,
+            daily_results=[
+                SimulationStepOut(
+                    target_date=d.target_date,
+                    weather_record_id=d.weather_record_id,
+                    soil_profiles_updated=d.soil_profiles_updated,
+                    simulated_et0_mm=d.simulated_et0_mm,
+                    simulated_rain_mm=d.simulated_rain_mm,
+                    zone_moisture_levels=d.zone_moisture_levels,
+                )
+                for d in res.daily_results
+            ],
+            summary=BatchAdvanceSummary(
+                total_rain_mm=res.total_rain_mm,
+                total_et0_mm=res.total_et0_mm,
+                zone_final_moistures=res.zone_final_moistures,
+                zone_stress_days=res.zone_stress_days,
+            ),
+        )
+        return APIResponse(
+            success=True,
+            data=data,
+            message=f"Batch simulation of {res.days_simulated} days ({res.start_date.isoformat()} to {res.end_date.isoformat()}) completed successfully.",
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))

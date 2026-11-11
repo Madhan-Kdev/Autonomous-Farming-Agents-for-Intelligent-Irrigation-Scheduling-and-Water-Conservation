@@ -5,6 +5,8 @@ import type {
   ManualIrrigationOut,
   SimulationAdvanceRequest,
   SimulationStepOut,
+  BatchAdvanceRequest,
+  BatchAdvanceOut,
   IrrigationHistoryRecord,
   SoilTelemetryRecord,
 } from '../../types';
@@ -55,6 +57,19 @@ export const advanceSimulationDay = async (
   );
   if (!res.data.success) {
     throw new Error(res.data.error || res.data.message || 'Simulation advance failed');
+  }
+  return res.data.data;
+};
+
+export const batchAdvanceSimulation = async (
+  req: BatchAdvanceRequest
+): Promise<BatchAdvanceOut> => {
+  const res = await axios.post<APIResponse<BatchAdvanceOut>>(
+    '/api/v1/simulation/batch-advance',
+    req
+  );
+  if (!res.data.success) {
+    throw new Error(res.data.error || res.data.message || 'Batch simulation failed');
   }
   return res.data.data;
 };

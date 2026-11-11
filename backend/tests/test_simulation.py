@@ -221,4 +221,50 @@ class TestSimulationEndpoints:
         resp = client.post("/api/v1/simulation/irrigate-manual", json=payload)
         assert resp.status_code == 400
 
+    def test_simulator_batch_advance_drydown(self, db):
+        from app.repositories.repositories import FarmRepository
+        from app.service.simulator import VirtualFarmSimulator
+
+        farm = FarmRepository(db).get_by_name("Autonomous Demo Farm")
+        sim = VirtualFarmSimulator(db, seed=123)
+
+        batch_res = sim.batch_advance(
+            farm_id=farm.id,
+            days=3,
+            force_rain_daily_mm=0.0,
+        )
+
+        assert batch_res.days_simulated == 3
+        assert len(batch_res.daily_results) == 3
+        assert batch_res.total_rain_mm == 0.0
+        assert batch_res.total_et0_mm > 0.0
+        assert len(batch_res.zone_final_moistures) > 0
+
+    def test_post_batch_advance_endpoint(self, client):
+        farms_resp = client.get("/api/v1/farms")
+        farm_id = farms_resp.json()["data"][0]["id"]
+
+        payload = {
+            "farm_id": farm_id,
+            "days": 4,
+            "force_rain_daily_mm": 5.0,
+        }
+        resp = client.post("/api/v1/simulation/batch-advance", json=payload)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        data = body["data"]
+        assert data["days_simulated"] == 4
+        assert len(data["daily_results"]) == 4
+        assert data["summary"]["total_rain_mm"] == 20.0
+        assert data["summary"]["total_et0_mm"] > 0
+
+    def test_post_batch_advance_invalid_days_422(self, client):
+        payload = {
+            "farm_id": 1,
+            "days": 100,  # exceeds ge=1, le=60
+        }
+        resp = client.post("/api/v1/simulation/batch-advance", json=payload)
+        assert resp.status_code == 422
+
 
