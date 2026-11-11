@@ -16,13 +16,15 @@ import {
   Wind,
   Snowflake,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Map
 } from 'lucide-react';
 import type { Farm, AgentState } from './types';
 import { IrrigationDecisionPage } from './features/irrigation/IrrigationDecisionPage';
+import { VirtualFarmView } from './features/virtual-farm/VirtualFarmView';
 
 export default function App() {
-  const [activeView, setActiveView] = useState<'overview' | 'decision'>('decision');
+  const [activeView, setActiveView] = useState<'overview' | 'decision' | 'virtual-farm'>('decision');
   const [farms, setFarms] = useState<Farm[]>([]);
   const [selectedFarmId, setSelectedFarmId] = useState<number | null>(null);
   const [state, setState] = useState<AgentState | null>(null);
@@ -31,12 +33,18 @@ export default function App() {
   const [msg, setMsg] = useState<string>('');
 
   useEffect(() => {
-    if (window.location.pathname.includes('/irrigation/decision')) {
+    const path = window.location.pathname;
+    if (path.includes('/irrigation/decision')) {
       setActiveView('decision');
+    } else if (path.includes('/virtual-farm')) {
+      setActiveView('virtual-farm');
     }
     const handlePopState = () => {
-      if (window.location.pathname.includes('/irrigation/decision')) {
+      const p = window.location.pathname;
+      if (p.includes('/irrigation/decision')) {
         setActiveView('decision');
+      } else if (p.includes('/virtual-farm')) {
+        setActiveView('virtual-farm');
       } else {
         setActiveView('overview');
       }
@@ -45,9 +53,14 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const navigateTo = (view: 'overview' | 'decision') => {
+  const navigateTo = (view: 'overview' | 'decision' | 'virtual-farm') => {
     setActiveView(view);
-    const targetPath = view === 'decision' ? '/irrigation/decision' : '/';
+    const paths: Record<string, string> = {
+      decision: '/irrigation/decision',
+      'virtual-farm': '/virtual-farm',
+      overview: '/',
+    };
+    const targetPath = paths[view];
     if (window.location.pathname !== targetPath) {
       window.history.pushState({}, '', targetPath);
     }
@@ -228,6 +241,22 @@ export default function App() {
 
           <button
             type="button"
+            onClick={() => navigateTo('virtual-farm')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+              activeView === 'virtual-farm'
+                ? 'bg-sky-700 text-white shadow-md shadow-sky-950 ring-1 ring-sky-400/40'
+                : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+            }`}
+          >
+            <Map className="w-4 h-4 text-sky-400" />
+            <span>Virtual Farm &amp; Digital Twin</span>
+            <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-sky-950 border border-sky-500/40 text-sky-300">
+              IoT Sim
+            </span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => navigateTo('overview')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
               activeView === 'overview'
@@ -249,6 +278,12 @@ export default function App() {
       {activeView === 'decision' ? (
         <div className="max-w-7xl mx-auto">
           <IrrigationDecisionPage />
+        </div>
+      ) : activeView === 'virtual-farm' ? (
+        <div className="max-w-7xl mx-auto">
+          <VirtualFarmView
+            onNavigateToDecision={(_farmId, _zoneId) => navigateTo('decision')}
+          />
         </div>
       ) : (
         /* Main Grid */

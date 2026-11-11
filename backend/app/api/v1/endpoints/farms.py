@@ -12,8 +12,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
-from app.repositories.repositories import FarmRepository, FieldRepository, ZoneRepository
+from app.repositories.repositories import FarmRepository, FieldRepository, SoilProfileRepository, ZoneRepository
 from app.schemas.common import APIResponse
+from app.service.soil_physics import compute_soil_water_status
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,10 @@ class ZoneOut(BaseModel):
     is_active: bool
     min_irrigation_mm: float | None
     max_irrigation_mm: float | None
+    latest_soil_moisture_pct: float | None = None
+    field_capacity_pct: float | None = None
+    wilting_point_pct: float | None = None
+    stress_index: float | None = None
 
     class Config:
         from_attributes = True
@@ -67,6 +72,43 @@ class FarmOut(BaseModel):
 
 
 # ------------------------------------------------------------------ #
+# Helpers
+# ------------------------------------------------------------------ #
+
+def _build_zone_out(z, latest_soil) -> ZoneOut:
+    moisture = latest_soil.volumetric_moisture_pct if latest_soil else None
+    fc = latest_soil.field_capacity_pct if latest_soil else None
+    wp = latest_soil.wilting_point_pct if latest_soil else None
+    stress = None
+    if moisture is not None and fc is not None and wp is not None:
+        root_m = (latest_soil.depth_cm / 100.0) if (latest_soil and latest_soil.depth_cm) else 0.40
+        status = compute_soil_water_status(
+            moisture_pct=moisture,
+            field_capacity_pct=fc,
+            wilting_point_pct=wp,
+            root_depth_m=root_m,
+        )
+        stress = round(status.soil_stress_index, 4)
+
+    return ZoneOut(
+        id=z.id,
+        field_id=z.field_id,
+        zone_number=z.zone_number,
+        name=z.name,
+        area_ha=z.area_ha,
+        crop_name=z.crop_name,
+        irrigation_method=z.irrigation_method,
+        is_active=z.is_active,
+        min_irrigation_mm=z.min_irrigation_mm,
+        max_irrigation_mm=z.max_irrigation_mm,
+        latest_soil_moisture_pct=moisture,
+        field_capacity_pct=fc,
+        wilting_point_pct=wp,
+        stress_index=stress,
+    )
+
+
+# ------------------------------------------------------------------ #
 # Endpoints
 # ------------------------------------------------------------------ #
 
@@ -77,12 +119,17 @@ def list_farms(db: Session = Depends(get_db)):
     farm_list = []
     field_repo = FieldRepository(db)
     zone_repo = ZoneRepository(db)
+    soil_repo = SoilProfileRepository(db)
 
     for farm in farms:
         f_fields = field_repo.get_by_farm(farm.id)
         field_list = []
         for field in f_fields:
             f_zones = zone_repo.get_by_field(field.id)
+            z_outs = [
+                _build_zone_out(z, soil_repo.get_latest_for_zone(z.id))
+                for z in f_zones
+            ]
             field_list.append(
                 FieldOut(
                     id=field.id,
@@ -90,7 +137,7 @@ def list_farms(db: Session = Depends(get_db)):
                     name=field.name,
                     area_ha=field.area_ha,
                     soil_type=field.soil_type,
-                    zones=[ZoneOut.model_validate(z) for z in f_zones],
+                    zones=z_outs,
                 )
             )
         farm_list.append(
@@ -117,10 +164,15 @@ def get_farm(farm_id: int, db: Session = Depends(get_db)):
 
     field_repo = FieldRepository(db)
     zone_repo = ZoneRepository(db)
+    soil_repo = SoilProfileRepository(db)
     f_fields = field_repo.get_by_farm(farm.id)
     field_list = []
     for f in f_fields:
         f_zones = zone_repo.get_by_field(f.id)
+        z_outs = [
+            _build_zone_out(z, soil_repo.get_latest_for_zone(z.id))
+            for z in f_zones
+        ]
         field_list.append(
             FieldOut(
                 id=f.id,
@@ -128,7 +180,7 @@ def get_farm(farm_id: int, db: Session = Depends(get_db)):
                 name=f.name,
                 area_ha=f.area_ha,
                 soil_type=f.soil_type,
-                zones=[ZoneOut.model_validate(z) for z in f_zones],
+                zones=z_outs,
             )
         )
 

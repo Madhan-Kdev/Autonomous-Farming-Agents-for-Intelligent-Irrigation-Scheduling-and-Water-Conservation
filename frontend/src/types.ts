@@ -29,6 +29,54 @@ export interface Zone {
   is_active: boolean;
   min_irrigation_mm: number | null;
   max_irrigation_mm: number | null;
+  latest_soil_moisture_pct?: number | null;
+  field_capacity_pct?: number | null;
+  wilting_point_pct?: number | null;
+  stress_index?: number | null;
+}
+
+export interface ManualIrrigationRequest {
+  zone_id: number;
+  volume_mm?: number | null;
+  volume_liters?: number | null;
+  irrigation_method?: string | null;
+  flow_rate_l_h?: number | null;
+}
+
+export interface ManualIrrigationOut {
+  zone_id: number;
+  zone_name: string;
+  farm_id: number;
+  volume_applied_mm: number;
+  volume_applied_liters: number;
+  duration_minutes: number;
+  flow_rate_l_h: number;
+  irrigation_method: string;
+  soil_moisture_before_pct: number;
+  soil_moisture_after_pct: number;
+  field_capacity_pct: number;
+  wilting_point_pct: number;
+  deep_percolation_mm: number;
+  stress_index_before: number;
+  stress_index_after: number;
+  irrigation_record_id: number;
+  soil_profile_id: number;
+}
+
+export interface SimulationAdvanceRequest {
+  farm_id: number;
+  target_date?: string | null;
+  irrigation_events?: Record<number, number>;
+  force_rain_mm?: number | null;
+}
+
+export interface SimulationStepOut {
+  target_date: string;
+  weather_record_id: number;
+  soil_profiles_updated: number[];
+  simulated_et0_mm: number;
+  simulated_rain_mm: number;
+  zone_moisture_levels: Record<number, number>;
 }
 
 export interface WeatherContext {
