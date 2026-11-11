@@ -204,10 +204,12 @@ def get_irrigation_decision_history(
             "actual_volume_mm": r.actual_volume_mm,
             "was_applied": r.was_applied,
             "soil_moisture_before_pct": r.soil_moisture_before_pct,
+            "soil_moisture_after_pct": r.soil_moisture_after_pct,
             "et0_on_day_mm": r.et0_on_day_mm,
             "etc_on_day_mm": r.etc_on_day_mm,
             "precipitation_on_day_mm": r.precipitation_on_day_mm,
             "decision_confidence": r.decision_confidence,
+            "irrigation_method": r.irrigation_method,
             "reasoning_summary": r.reasoning_summary,
         }
         for r in records

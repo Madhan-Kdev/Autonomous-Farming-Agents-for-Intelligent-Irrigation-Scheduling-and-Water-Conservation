@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Droplets,
   Calendar,
@@ -13,14 +13,39 @@ import {
   Sliders,
   ChevronRight,
   TrendingDown,
-  Waves
+  Waves,
+  History,
+  BarChart2,
+  Activity,
+  Clock,
 } from 'lucide-react';
-import type { Farm, Zone, ManualIrrigationOut, SimulationStepOut } from '../../types';
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  Line,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  CartesianGrid,
+  ReferenceLine,
+} from 'recharts';
+import type {
+  Farm,
+  Zone,
+  ManualIrrigationOut,
+  SimulationStepOut,
+  IrrigationHistoryRecord,
+  SoilTelemetryRecord,
+} from '../../types';
 import {
   fetchFarmDigitalTwin,
   fetchAllFarms,
   applyManualIrrigation,
-  advanceSimulationDay
+  advanceSimulationDay,
+  fetchZoneIrrigationHistory,
+  fetchZoneSoilHistory,
 } from './api';
 
 interface VirtualFarmViewProps {
@@ -50,9 +75,83 @@ export const VirtualFarmView: React.FC<VirtualFarmViewProps> = ({
   const [forcedRainMm, setForcedRainMm] = useState<number>(0);
   const [lastSimulationStep, setLastSimulationStep] = useState<SimulationStepOut | null>(null);
 
+  // History & Telemetry State
+  const [historyLoading, setHistoryLoading] = useState<boolean>(false);
+  const [irrigationHistory, setIrrigationHistory] = useState<IrrigationHistoryRecord[]>([]);
+  const [soilHistory, setSoilHistory] = useState<SoilTelemetryRecord[]>([]);
+  const [historyTab, setHistoryTab] = useState<'chart' | 'table'>('chart');
+
   useEffect(() => {
     loadFarms();
   }, []);
+
+  useEffect(() => {
+    if (selectedZone) {
+      loadZoneHistory(selectedZone.id);
+    } else {
+      setIrrigationHistory([]);
+      setSoilHistory([]);
+    }
+  }, [selectedZone?.id, lastManualResult, lastSimulationStep]);
+
+  const loadZoneHistory = async (zoneId: number) => {
+    setHistoryLoading(true);
+    try {
+      const [irrigRecs, soilRecs] = await Promise.all([
+        fetchZoneIrrigationHistory(zoneId, 30),
+        fetchZoneSoilHistory(zoneId, 30),
+      ]);
+      setIrrigationHistory(irrigRecs);
+      setSoilHistory(soilRecs);
+    } catch (err: any) {
+      console.error('Failed to load zone history:', err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const chartData = useMemo(() => {
+    const points: Array<{
+      rawTime: number;
+      timeLabel: string;
+      moisture: number | null;
+      irrigationMm: number | null;
+      decision: string | null;
+      wasApplied: boolean;
+    }> = [];
+
+    // Add soil profile points
+    soilHistory.forEach((s) => {
+      const t = s.created_at ? new Date(s.created_at).getTime() : 0;
+      const d = s.created_at ? new Date(s.created_at) : new Date();
+      points.push({
+        rawTime: t,
+        timeLabel: `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
+        moisture: s.volumetric_moisture_pct,
+        irrigationMm: null,
+        decision: null,
+        wasApplied: false,
+      });
+    });
+
+    // Add irrigation record points
+    irrigationHistory.forEach((r) => {
+      const t = r.scheduled_at ? new Date(r.scheduled_at).getTime() : 0;
+      const d = r.scheduled_at ? new Date(r.scheduled_at) : new Date();
+      points.push({
+        rawTime: t,
+        timeLabel: `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
+        moisture: r.soil_moisture_after_pct ?? r.soil_moisture_before_pct ?? null,
+        irrigationMm: r.was_applied ? (r.actual_volume_mm ?? r.recommended_volume_mm ?? 0) : 0,
+        decision: r.decision,
+        wasApplied: r.was_applied,
+      });
+    });
+
+    // Sort chronologically ascending
+    points.sort((a, b) => a.rawTime - b.rawTime);
+    return points.slice(-30);
+  }, [soilHistory, irrigationHistory]);
 
   const loadFarms = async () => {
     setLoading(true);
@@ -674,6 +773,279 @@ export const VirtualFarmView: React.FC<VirtualFarmViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Zone Irrigation & Moisture History Section */}
+      {selectedZone && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-sky-500/10 border border-sky-500/20 rounded-xl">
+                <Activity className="w-5 h-5 text-sky-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-slate-100">
+                    Zone Telemetry & Irrigation History
+                  </h3>
+                  <span className="text-xs px-2 py-0.5 rounded-md bg-slate-800 text-sky-300 font-semibold border border-slate-700">
+                    {selectedZone.name}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Time-series volumetric soil moisture dynamics (&theta;) and applied irrigation events with Field Capacity & Wilting Point thresholds
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setHistoryTab('chart')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition ${
+                    historyTab === 'chart'
+                      ? 'bg-sky-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <BarChart2 className="w-3.5 h-3.5" />
+                  <span>Telemetry Chart</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryTab('table')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition ${
+                    historyTab === 'table'
+                      ? 'bg-sky-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <History className="w-3.5 h-3.5" />
+                  <span>Event Log ({irrigationHistory.length})</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => loadZoneHistory(selectedZone.id)}
+                disabled={historyLoading}
+                className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 text-slate-300 transition disabled:opacity-50"
+                title="Refresh history"
+              >
+                <RotateCcw className={`w-4 h-4 ${historyLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          </div>
+
+          {historyLoading ? (
+            <div className="h-64 flex flex-col items-center justify-center gap-2 text-slate-400">
+              <div className="w-8 h-8 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs">Loading telemetry records...</span>
+            </div>
+          ) : historyTab === 'chart' ? (
+            chartData.length === 0 ? (
+              <div className="h-64 flex flex-col items-center justify-center text-slate-500 text-xs">
+                <History className="w-8 h-8 text-slate-600 mb-2" />
+                <span>No telemetry or irrigation records logged yet for this zone.</span>
+                <span className="text-slate-600 mt-1">Apply manual water or step the simulation day to log dynamics.</span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="h-80 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={chartData} margin={{ top: 15, right: 25, left: 0, bottom: 20 }}>
+                      <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="timeLabel"
+                        stroke="#64748b"
+                        tick={{ fontSize: 10 }}
+                        angle={-20}
+                        textAnchor="end"
+                        height={40}
+                      />
+                      <YAxis
+                        yAxisId="left"
+                        stroke="#38bdf8"
+                        tick={{ fontSize: 10 }}
+                        unit="%"
+                        domain={[
+                          0,
+                          Math.max(35, Math.ceil((selectedZone.field_capacity_pct ?? 30) + 8)),
+                        ]}
+                      />
+                      <YAxis
+                        yAxisId="right"
+                        orientation="right"
+                        stroke="#0ea5e9"
+                        tick={{ fontSize: 10 }}
+                        unit="mm"
+                        domain={[0, 'auto']}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          borderColor: '#334155',
+                          borderRadius: '0.75rem',
+                          fontSize: '11px',
+                          color: '#f8fafc',
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                      <ReferenceLine
+                        yAxisId="left"
+                        y={selectedZone.field_capacity_pct ?? 30}
+                        stroke="#10b981"
+                        strokeDasharray="4 4"
+                        label={{
+                          value: `FC (${selectedZone.field_capacity_pct ?? 30}%)`,
+                          fill: '#10b981',
+                          fontSize: 10,
+                          position: 'insideTopLeft',
+                        }}
+                      />
+                      <ReferenceLine
+                        yAxisId="left"
+                        y={selectedZone.wilting_point_pct ?? 12}
+                        stroke="#ef4444"
+                        strokeDasharray="4 4"
+                        label={{
+                          value: `WP (${selectedZone.wilting_point_pct ?? 12}%)`,
+                          fill: '#ef4444',
+                          fontSize: 10,
+                          position: 'insideBottomLeft',
+                        }}
+                      />
+                      <Bar
+                        yAxisId="right"
+                        dataKey="irrigationMm"
+                        fill="#0284c7"
+                        name="Applied Irrigation (mm)"
+                        barSize={18}
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Line
+                        yAxisId="left"
+                        type="monotone"
+                        dataKey="moisture"
+                        stroke="#38bdf8"
+                        strokeWidth={2.5}
+                        dot={{ r: 3, fill: '#0284c7' }}
+                        activeDot={{ r: 6 }}
+                        name="Soil Moisture (%)"
+                        connectNulls
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-500 px-2 pt-1 border-t border-slate-800/60">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block" />
+                    Field Capacity: {selectedZone.field_capacity_pct ?? 30}% (Storage limit)
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-400 inline-block" />
+                    Wilting Point: {selectedZone.wilting_point_pct ?? 12}% (Plant stress threshold)
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block" />
+                    Current Moisture: {selectedZone.latest_soil_moisture_pct?.toFixed(1) ?? '22.0'}%
+                  </span>
+                </div>
+              </div>
+            )
+          ) : (
+            <div className="overflow-x-auto">
+              {irrigationHistory.length === 0 ? (
+                <div className="h-40 flex flex-col items-center justify-center text-slate-500 text-xs">
+                  <span>No irrigation events recorded for this zone yet.</span>
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950/80 text-[10px] uppercase text-slate-400 border-b border-slate-800">
+                    <tr>
+                      <th className="py-2.5 px-3">Timestamp</th>
+                      <th className="py-2.5 px-3">Decision</th>
+                      <th className="py-2.5 px-3">Depth (mm)</th>
+                      <th className="py-2.5 px-3">Moisture Impact</th>
+                      <th className="py-2.5 px-3">Duration</th>
+                      <th className="py-2.5 px-3">Method</th>
+                      <th className="py-2.5 px-3">Reasoning / Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+                    {irrigationHistory.map((rec) => (
+                      <tr key={rec.id} className="hover:bg-slate-800/30 transition">
+                        <td className="py-2.5 px-3 font-sans text-slate-400">
+                          {rec.scheduled_at
+                            ? new Date(rec.scheduled_at).toLocaleString(undefined, {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : '—'}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold font-sans ${
+                              rec.decision === 'MANUAL_COMMAND'
+                                ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
+                                : rec.decision === 'REQUIRED'
+                                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                : rec.decision === 'POSTPONED'
+                                ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                : 'bg-slate-800 text-slate-400 border border-slate-700'
+                            }`}
+                          >
+                            {rec.decision}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-semibold text-slate-200">
+                          {rec.actual_volume_mm !== null && rec.actual_volume_mm !== undefined
+                            ? `${rec.actual_volume_mm.toFixed(1)} mm`
+                            : rec.recommended_volume_mm !== null && rec.recommended_volume_mm !== undefined
+                            ? `${rec.recommended_volume_mm.toFixed(1)} mm`
+                            : '—'}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          {rec.soil_moisture_before_pct !== null && rec.soil_moisture_before_pct !== undefined ? (
+                            <span>
+                              {rec.soil_moisture_before_pct}%{' '}
+                              {rec.soil_moisture_after_pct !== null && rec.soil_moisture_after_pct !== undefined && (
+                                <>
+                                  &rarr;{' '}
+                                  <span className="text-emerald-400 font-bold">
+                                    {rec.soil_moisture_after_pct}%
+                                  </span>
+                                </>
+                              )}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400 font-sans">
+                          {rec.actual_duration_min
+                            ? `${rec.actual_duration_min} min`
+                            : rec.recommended_duration_min
+                            ? `${rec.recommended_duration_min} min`
+                            : '—'}
+                        </td>
+                        <td className="py-2.5 px-3 capitalize font-sans text-slate-400">
+                          {rec.irrigation_method || 'drip'}
+                        </td>
+                        <td className="py-2.5 px-3 font-sans text-slate-400 max-w-xs truncate" title={rec.reasoning_summary || ''}>
+                          {rec.reasoning_summary || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Manual Water Application Modal */}
       {manualModalOpen && selectedZone && (

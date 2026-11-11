@@ -112,20 +112,29 @@ def run_orchestration_workflow(
 @router.get("/zones/{zone_id}/history", response_model=APIResponse[list[dict[str, Any]]])
 def get_zone_irrigation_history(
     zone_id: int,
+    limit: int = 30,
     db: Session = Depends(get_db),
 ):
     """Retrieve historical irrigation records and execution history for a zone."""
     from app.repositories.repositories import IrrigationRecordRepository
 
-    records = IrrigationRecordRepository(db).get_recent_for_zone(zone_id, limit=30)
+    records = IrrigationRecordRepository(db).get_recent_for_zone(zone_id, limit=limit)
     data = [
         {
             "id": r.id,
             "scheduled_at": r.scheduled_at.isoformat() if r.scheduled_at else None,
             "decision": r.decision,
             "recommended_volume_mm": r.recommended_volume_mm,
+            "recommended_duration_min": r.recommended_duration_min,
             "actual_volume_mm": r.actual_volume_mm,
+            "actual_duration_min": r.actual_duration_min,
             "was_applied": r.was_applied,
+            "soil_moisture_before_pct": r.soil_moisture_before_pct,
+            "soil_moisture_after_pct": r.soil_moisture_after_pct,
+            "et0_on_day_mm": r.et0_on_day_mm,
+            "etc_on_day_mm": r.etc_on_day_mm,
+            "precipitation_on_day_mm": r.precipitation_on_day_mm,
+            "irrigation_method": r.irrigation_method,
             "reasoning_summary": r.reasoning_summary,
         }
         for r in records
@@ -134,4 +143,35 @@ def get_zone_irrigation_history(
         success=True,
         data=data,
         message=f"Irrigation history for zone {zone_id} retrieved successfully.",
+    )
+
+
+@router.get("/zones/{zone_id}/soil-history", response_model=APIResponse[list[dict[str, Any]]])
+def get_zone_soil_history(
+    zone_id: int,
+    limit: int = 30,
+    db: Session = Depends(get_db),
+):
+    """Retrieve historical soil profile telemetry for a zone."""
+    from app.repositories.repositories import SoilProfileRepository
+
+    profiles = SoilProfileRepository(db).get_all_for_zone(zone_id)
+    recent = list(profiles)[:limit]
+    data = [
+        {
+            "id": p.id,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "volumetric_moisture_pct": p.volumetric_moisture_pct,
+            "field_capacity_pct": p.field_capacity_pct,
+            "wilting_point_pct": p.wilting_point_pct,
+            "temperature_c": p.temperature_c,
+            "data_source": p.data_source,
+            "notes": p.notes,
+        }
+        for p in recent
+    ]
+    return APIResponse(
+        success=True,
+        data=data,
+        message=f"Soil profile history for zone {zone_id} retrieved successfully.",
     )

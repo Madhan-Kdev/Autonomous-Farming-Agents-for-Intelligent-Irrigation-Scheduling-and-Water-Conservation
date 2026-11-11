@@ -129,7 +129,17 @@ class TestAgentOrchestrationEndpoints:
         farms_resp = client.get("/api/v1/farms")
         zone_id = farms_resp.json()["data"][0]["fields"][0]["zones"][0]["id"]
 
-        resp = client.get(f"/api/v1/agents/zones/{zone_id}/history")
+        resp = client.get(f"/api/v1/agents/zones/{zone_id}/history?limit=10")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert isinstance(body["data"], list)
+
+    def test_get_zone_soil_history(self, client):
+        farms_resp = client.get("/api/v1/farms")
+        zone_id = farms_resp.json()["data"][0]["fields"][0]["zones"][0]["id"]
+
+        resp = client.get(f"/api/v1/agents/zones/{zone_id}/soil-history?limit=15")
         assert resp.status_code == 200
         body = resp.json()
         assert body["success"] is True

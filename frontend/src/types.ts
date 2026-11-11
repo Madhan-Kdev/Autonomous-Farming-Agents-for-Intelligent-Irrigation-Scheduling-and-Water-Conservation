@@ -79,6 +79,35 @@ export interface SimulationStepOut {
   zone_moisture_levels: Record<number, number>;
 }
 
+export interface IrrigationHistoryRecord {
+  id: number;
+  scheduled_at: string | null;
+  decision: string;
+  recommended_volume_mm?: number | null;
+  recommended_duration_min?: number | null;
+  actual_volume_mm?: number | null;
+  actual_duration_min?: number | null;
+  was_applied: boolean;
+  soil_moisture_before_pct?: number | null;
+  soil_moisture_after_pct?: number | null;
+  et0_on_day_mm?: number | null;
+  etc_on_day_mm?: number | null;
+  precipitation_on_day_mm?: number | null;
+  irrigation_method?: string | null;
+  reasoning_summary?: string | null;
+}
+
+export interface SoilTelemetryRecord {
+  id: number;
+  created_at: string | null;
+  volumetric_moisture_pct: number;
+  field_capacity_pct?: number | null;
+  wilting_point_pct?: number | null;
+  temperature_c?: number | null;
+  data_source?: string | null;
+  notes?: string | null;
+}
+
 export interface WeatherContext {
   temperature_c?: number;
   humidity_pct?: number;

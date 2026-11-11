@@ -5,6 +5,8 @@ import type {
   ManualIrrigationOut,
   SimulationAdvanceRequest,
   SimulationStepOut,
+  IrrigationHistoryRecord,
+  SoilTelemetryRecord,
 } from '../../types';
 
 export interface APIResponse<T> {
@@ -55,5 +57,25 @@ export const advanceSimulationDay = async (
     throw new Error(res.data.error || res.data.message || 'Simulation advance failed');
   }
   return res.data.data;
+};
+
+export const fetchZoneIrrigationHistory = async (
+  zoneId: number,
+  limit: number = 30
+): Promise<IrrigationHistoryRecord[]> => {
+  const res = await axios.get<APIResponse<IrrigationHistoryRecord[]>>(
+    `/api/v1/agents/zones/${zoneId}/history?limit=${limit}`
+  );
+  return res.data.success ? res.data.data : [];
+};
+
+export const fetchZoneSoilHistory = async (
+  zoneId: number,
+  limit: number = 30
+): Promise<SoilTelemetryRecord[]> => {
+  const res = await axios.get<APIResponse<SoilTelemetryRecord[]>>(
+    `/api/v1/agents/zones/${zoneId}/soil-history?limit=${limit}`
+  );
+  return res.data.success ? res.data.data : [];
 };
 
